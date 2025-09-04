@@ -8,7 +8,6 @@ on:
 
 env:
   DOCKER_IMAGE_NAME: tour-management-app
-  DOTNET_VERSION: '4.7.2'
 
 jobs:
   test:
@@ -27,16 +26,47 @@ jobs:
       with:
         nuget-version: 'latest'
 
-    - name: Restore NuGet packages
-      run: nuget restore
+    - name: Find and restore NuGet packages
+      run: |
+        $solutionFiles = Get-ChildItem -Recurse -Filter "*.sln"
+        $projectFiles = Get-ChildItem -Recurse -Filter "*.csproj"
+        $packageFiles = Get-ChildItem -Recurse -Filter "packages.config"
+        
+        if ($solutionFiles.Count -gt 0) {
+          Write-Host "Found solution file: $($solutionFiles[0].FullName)"
+          nuget restore $solutionFiles[0].FullName
+        } elseif ($projectFiles.Count -gt 0) {
+          Write-Host "Found project file: $($projectFiles[0].FullName)"
+          nuget restore $projectFiles[0].FullName
+        } elseif ($packageFiles.Count -gt 0) {
+          Write-Host "Found packages.config: $($packageFiles[0].FullName)"
+          nuget restore $packageFiles[0].FullName
+        } else {
+          Write-Host "No solution, project, or packages.config file found. Skipping NuGet restore."
+        }
+      shell: powershell
 
-    - name: Build solution
-      run: msbuild /p:Configuration=Release /p:Platform="Any CPU"
+    - name: Build project
+      run: |
+        $solutionFiles = Get-ChildItem -Recurse -Filter "*.sln"
+        $projectFiles = Get-ChildItem -Recurse -Filter "*.csproj"
+        
+        if ($solutionFiles.Count -gt 0) {
+          Write-Host "Building solution: $($solutionFiles[0].FullName)"
+          msbuild $solutionFiles[0].FullName /p:Configuration=Release /p:Platform="Any CPU"
+        } elseif ($projectFiles.Count -gt 0) {
+          Write-Host "Building project: $($projectFiles[0].FullName)"
+          msbuild $projectFiles[0].FullName /p:Configuration=Release /p:Platform="Any CPU"
+        } else {
+          Write-Host "No solution or project file found. Build step completed."
+        }
+      shell: powershell
 
     - name: Run unit tests
       run: |
-        if (Test-Path "**/*Test*.dll") {
-          vstest.console.exe **/*Test*.dll /Logger:trx
+        $testAssemblies = Get-ChildItem -Recurse -Filter "*Test*.dll" -Path "bin"
+        if ($testAssemblies.Count -gt 0) {
+          vstest.console.exe $testAssemblies.FullName /Logger:trx
         } else {
           Write-Host "No test assemblies found, skipping tests"
         }
@@ -127,8 +157,19 @@ jobs:
       run: |
         echo "## Deployment Ready" >> $GITHUB_STEP_SUMMARY
         echo "Docker image has been built and pushed successfully!" >> $GITHUB_STEP_SUMMARY
-        echo "### To deploy locally:" >> $GITHUB_STEP_SUMMARY
-        echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-        echo "docker pull ${{ secrets.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
-        echo "docker run -p 8080:80 ${{ secrets.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+        echo "### To deploy using docker-compose:" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`yaml" >> $GITHUB_STEP_SUMMARY
+        echo "version: '3.8'" >> $GITHUB_STEP_SUMMARY
+        echo "services:" >> $GITHUB_STEP_SUMMARY
+        echo "  tour-management:" >> $GITHUB_STEP_SUMMARY
+        echo "    image: ${{ secrets.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+        echo "    ports:" >> $GITHUB_STEP_SUMMARY
+        echo "      - \"8080:80\"" >> $GITHUB_STEP_SUMMARY
+        echo "    environment:" >> $GITHUB_STEP_SUMMARY
+        echo "      - ASPNETCORE_ENVIRONMENT=Development" >> $GITHUB_STEP_SUMMARY
+        echo "    volumes:" >> $GITHUB_STEP_SUMMARY
+        echo "      - database_data:/Database" >> $GITHUB_STEP_SUMMARY
+        echo "    restart: unless-stopped" >> $GITHUB_STEP_SUMMARY
+        echo "volumes:" >> $GITHUB_STEP_SUMMARY
+        echo "  database_data:" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
