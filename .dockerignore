@@ -1,0 +1,16 @@
+# Ignore unnecessary files
+.git
+.gitignore
+README.md
+*.md
+.vs
+.vscode
+bin/
+obj/
+packages/
+*.user
+*.suo
+*.cache
+*.log
+*.tmp
+*.temp
